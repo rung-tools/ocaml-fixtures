@@ -1,3 +1,31 @@
+(**
+ * MIT License
+ * 
+ * Copyright (c) 2018 NG Informática
+ *
+ * Written by:
+ *
+ * - Marcelo Camargo <undefined.void@null.net>
+ * - Paulo Torrens <paulotorrens@gnu.org>
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ **)
 open Core_extended
 
 type file_system =
@@ -54,6 +82,19 @@ let read_dir_test_files root =
         | false -> File (name, path)
     in loop root root
 
+let gen_fortune_cookie () =
+    let niilist_messages = [|
+        "A vida é um pato que se come frio";
+        "Será que estamos vivendo ou apenas existindo?";
+        "Não separa-se predicado por vírgula";
+        "Sai do meu grupo";
+        "Os testes passaram, mas minha vontade de morrer permanece";
+        "Você deveria cobrar insalubridade por trabalhar com Clipper"
+    |] in
+    Random.self_init ();
+    let index = Random.int (Array.length niilist_messages) in
+    niilist_messages.(index)
+
 let rec tree_size node =
     match node with
     | Dir (_, children) ->
@@ -79,10 +120,12 @@ let run_tests tree =
             List.iter (fun node -> run node ~level:(level + 1) ()) children
         | File (name, path) ->
             let test_info = get_test_info path in
+            let (temp_name, temp_channel) = Filename.open_temp_file "test" ".txt" in
+            Core.Out_channel.output_string temp_channel test_info.input;
+            Core.Out_channel.close temp_channel;
             let start_time = Sys.time () in
-            let in_channel = Unix.open_process_in (
-                "echo \"" ^ String.escaped test_info.input ^ "\" | " ^
-                "../_build/default/bin/main.exe " ^ test_info.flags) in
+            let command = Printf.sprintf "cat %s | ../_build/default/bin/main.exe %s" temp_name test_info.flags in
+            let in_channel = Unix.open_process_in command in
             let execution_result = Core.In_channel.input_all in_channel in
             let success = (String.trim execution_result) = (String.trim test_info.output) in
             let symbol = if success then test_passed_symbol else test_failed_symbol in
@@ -90,16 +133,24 @@ let run_tests tree =
             let total_millis = (finish_time -. start_time) *. 1000.0 in
             Printf.printf "%s%s - %s %s\n"
                 (indent level) symbol test_info.description
-                (Color_print.yellow_sprintf "(%fms)" total_millis);
+                (Color_print.yellow_sprintf "(%.3fms)" total_millis);
             if not success then begin
-                Printf.printf "\n  -- Actual -- \n\n";
-                Color_print.red_printf "%s" execution_result;
-                Printf.printf "\n\n  -- Expected -- \n\n";
-                Color_print.cyan_printf "%s" test_info.output;
-                Color_print.yellow_printf "\n  THE TESTS FAILED BECAUSE [EVERYTHING IS TERRIBLE] (on file %s)\n" name;
+                let (expected_name, expected_channel) = Filename.open_temp_file "expected" ".txt" in
+                Core.Out_channel.output_string expected_channel test_info.output;
+                Core.Out_channel.close expected_channel;
+
+                let (actual_name, actual_channel) = Filename.open_temp_file "actual" ".txt" in
+                Core.Out_channel.output_string actual_channel execution_result;
+                Core.Out_channel.close actual_channel;
+
+                let command = Printf.sprintf "diff -w -u -W 80 %s %s | colordiff" (String.escaped expected_name) (String.escaped actual_name) in
+                let in_channel = Unix.open_process_in command in
+                print_string (Core.In_channel.input_all in_channel);
+                Color_print.red_printf "\n\n[%s]\nThe tests have failed. Everything is terrible.\n" name;
                 exit 1
             end
-    in run tree ()
+    in run tree ();
+    Color_print.color_printf ~color:`Orange "\n        %s\n" (gen_fortune_cookie ())
 
 let () =
     let test_tree = read_dir_test_files "./" in
