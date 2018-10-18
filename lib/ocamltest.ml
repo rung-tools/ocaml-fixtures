@@ -47,6 +47,11 @@ type test = {
 }
 [@@deriving show]
 
+type test_result =
+  | Skipped
+  | Passed of float
+  | Failed of float
+
 type parser_section =
   | Epsilon
   | Flags
@@ -138,98 +143,114 @@ let print_diff in_channel =
     | Some '@' -> C.blue_printf "%s\n" line;
     | Some _   -> print_endline line)
 
-let test_passed_symbol = C.green "✓"
-let test_failed_symbol = C.red "✗"
-let test_skipped_symbol = C.cyan "●"
+let format_time millis =
+  let format =
+    if millis > 30.0 then C.yellow_sprintf else C.gray_sprintf ~brightness:0.4
+  in
+  format "(%.3fms)" millis
 
-let run_test name path indent level total_skipped total_passing =
+let indent level = String.make (4 * level) ' '
+
+let print_test_status level result test_info =
+  let passed_symbol = C.green "✓" in
+  let failed_symbol = C.red "✗" in
+  let skipped_symbol = C.cyan "●" in
+  let print = Printf.printf "%s%s %s %s\n" (indent level) in
+  match result with
+  | Passed ms -> print passed_symbol passed_symbol @@ format_time ms
+  | Failed ms -> print passed_symbol failed_symbol @@ format_time ms
+  | Skipped   -> print skipped_symbol
+    (C.gray ~brightness:0.5 test_info.description)
+    (C.cyan "(skipped)")
+
+let report_diff test_info execution_result path =
+  let (expected_name, expected_channel) =
+    Filename.open_temp_file "expected" ".txt" in
+  Core.Out_channel.output_string expected_channel test_info.output;
+  Core.Out_channel.close expected_channel;
+  let (actual_name, actual_channel) =
+    Filename.open_temp_file "actual" ".txt" in
+  Core.Out_channel.output_string actual_channel execution_result;
+  Core.Out_channel.close actual_channel;
+  let command = Printf.sprintf "diff -tuW 80 %s %s"
+    (String.escaped expected_name) (String.escaped actual_name) in
+  let in_channel = Unix.open_process_in command in
+  print_diff in_channel;
+  C.red_printf "\n\n[%s]\nThe tests have failed. %s\n"
+    path "Everything is terrible.";
+  ignore (Unix.close_process_in in_channel);
+  exit 1
+
+let report_unexppected_error process_status level test_info possible_error =
+  let open Unix in
+  match process_status with
+  | WEXITED n ->
+    (* Exit code not zero (i.e., an error occurred) *)
+    print_test_status level (Failed 0.0) test_info;
+    Printf.printf "\n\n%s" possible_error;
+    C.red_printf "\n\nThe compiler has returned error code %d. %s\n"
+      n "Everything is terrible.";
+    exit 2
+  | _ ->
+    (* Signal caught... this is odd... *)
+    C.red_printf "\n\nThe compiler was killed by a signal. %s\n"
+      "What has happened?";
+    exit 3
+
+
+let run_test name path level total_skipped total_passing =
   let test_info = get_test_info path in
-    if test_info.skip then begin
-      incr total_skipped;
-      Printf.printf "%s%s %s %s\n"
-        (indent level)
-        test_skipped_symbol
-        (C.gray ~brightness:0.5 test_info.description)
-        (C.cyan "(skipped)")
-    end else begin
-      let (temp_name, temp_channel) = Filename.open_temp_file "test" ".txt" in
-      Core.Out_channel.output_string temp_channel test_info.input;
-      Core.Out_channel.close temp_channel;
-      let start_time = Unix.gettimeofday () in
-      let variables =
-        test_info.environment
-        |> List.map (Printf.sprintf "export %s;")
-        |> String.concat " " in
-      let command = Printf.sprintf
-        "%scat %s | ../_build/default/bin/main.exe %s"
-        variables temp_name test_info.flags in
-      (* Execute the command... *)
-      let (in_channel, out_channel, err_channel) =
-        Unix.open_process_full command [||] in
-      (* Read it's output until it's closed (by the compiler)... *)
-      let execution_result = Core.In_channel.input_all in_channel in
-      let possible_error = Core.In_channel.input_all err_channel in
-      (* Now close the executable and check the exit code... *)
-      let status =
-        Unix.close_process_full (in_channel, out_channel, err_channel) in
-      match status with
-      | WEXITED 0 ->
-        let success = (String.trim execution_result) =
-          (String.trim test_info.output) in
-        let symbol =
-          if success then
-            test_passed_symbol
-          else
-            test_failed_symbol
-        in
-        let finish_time = Unix.gettimeofday () in
-        let total_millis = (finish_time -. start_time) *. 1000.0 in
-        let time_printer =
-          if total_millis > 30.0
-          then C.yellow_sprintf
-          else C.gray_sprintf ~brightness:0.4 in
-        Printf.printf "%s%s %s %s\n"
-          (indent level) symbol test_info.description
-          (time_printer "(%.3fms)" total_millis);
-        if not success then begin
-          let (expected_name, expected_channel) =
-            Filename.open_temp_file "expected" ".txt" in
-          Core.Out_channel.output_string expected_channel test_info.output;
-          Core.Out_channel.close expected_channel;
-          let (actual_name, actual_channel) =
-            Filename.open_temp_file "actual" ".txt" in
-          Core.Out_channel.output_string actual_channel execution_result;
-          Core.Out_channel.close actual_channel;
-          let command = Printf.sprintf "diff -tuW 80 %s %s"
-            (String.escaped expected_name) (String.escaped actual_name) in
-          let in_channel = Unix.open_process_in command in
-          print_diff in_channel;
-          C.red_printf "\n\n[%s]\nThe tests have failed. %s\n"
-            path "Everything is terrible.";
-          ignore (Unix.close_process_in in_channel);
-          exit 1
-        end else
-          incr total_passing
-      | WEXITED n ->
-        (* Exit code not zero (i.e., an error occurred) *)
-        Printf.printf "%s%s %s\n"
-          (indent level) test_failed_symbol test_info.description;
-        Printf.printf "\n\n%s" possible_error;
-        C.red_printf "\n\nThe compiler has returned error code %d. %s\n"
-          n "Everything is terrible.";
-        exit 2
-      | _ ->
-        (* Signal caught... this is odd... *)
-        C.red_printf "\n\nThe compiler was killed by a signal. %s\n"
-          "What has happened?";
-        exit 3
-    end
+  if test_info.skip then begin
+    incr total_skipped;
+    print_test_status level Skipped test_info
+  end else begin
+    let (temp_name, temp_channel) = Filename.open_temp_file "test" ".txt" in
+    Core.Out_channel.output_string temp_channel test_info.input;
+    Core.Out_channel.close temp_channel;
+    let start_time = Unix.gettimeofday () in
+    let variables =
+      test_info.environment
+      |> List.map (Printf.sprintf "export %s;")
+      |> String.concat " " in
+    let command = Printf.sprintf
+      "%scat %s | ../_build/default/bin/main.exe %s"
+      variables temp_name test_info.flags in
+
+    (* Execute the command... *)
+    let (in_channel, out_channel, err_channel) =
+      Unix.open_process_full command [||] in
+
+    (* Read it's output until it's closed (by the compiler)... *)
+    let execution_result = Core.In_channel.input_all in_channel in
+    let possible_error = Core.In_channel.input_all err_channel in
+
+    (* Now close the executable and check the exit code... *)
+    let status =
+      Unix.close_process_full (in_channel, out_channel, err_channel) in
+    match status with
+    | WEXITED 0 ->
+      let finish_time = Unix.gettimeofday () in
+      let total_millis = (finish_time -. start_time) *. 1000.0 in
+      let success = (String.trim execution_result) =
+        (String.trim test_info.output) in
+      let result =
+        if success then (Passed total_millis) else (Failed total_millis) in
+      print_test_status level result test_info;
+      if not success then
+        report_diff test_info execution_result path
+      else
+        incr total_passing
+    | _ as process_status ->
+      report_unexppected_error process_status level test_info possible_error
+  end
 
 let run_tests tree =
   let total_passing = ref 0 in
   let total_skipped = ref 0 in
-  let indent level = String.make (4 * level) ' ' in
-  let rec run node ?(level = 1) () =
+  let rec run ?(level = 1) node =
+    let run_dir files =
+      List.iter (run ~level:(level + 1)) @@ List.sort compare files
+    in
     match node with
     | Dir ("./", children) ->
       let target_directory = Sys.getcwd ()
@@ -237,25 +258,24 @@ let run_tests tree =
       |> C.gray ~brightness:1.0 in
       C.blue_printf "\n    Running on directory [%s] (%d tests)\n\n"
         target_directory (tree_size tree);
-        children
-        |> List.sort compare
-        |> List.iter (fun node -> run node ~level:(level + 1) ())
+        run_dir children
     | Dir (name, children) ->
       Printf.printf "%s%s/\n" (indent level) (C.cyan name);
-      children
-      |> List.sort compare
-      |> List.iter (fun node -> run node ~level:(level + 1) ())
+      run_dir children
     | File (name, path) ->
-      run_test name path indent level total_skipped total_passing
+      run_test name path level total_skipped total_passing
+  in
 
   (* Run all tests *)
-  in run tree ();
+  run tree;
   print_newline ();
+
   (* Show test cound after running. *)
-  print_endline "        ---------------------------------------------------";
+  print_endline  "        ---------------------------------------------------";
   C.green_printf "         - %d passing tests\n" !total_passing;
-  C.cyan_printf "         - %d skipped tests\n" !total_skipped;
-  print_endline "        ---------------------------------------------------";
+  C.cyan_printf  "         - %d skipped tests\n" !total_skipped;
+  print_endline  "        ---------------------------------------------------";
+
   (* If we haven't exited... show a reassuring message! *)
   print_newline ();
   C.color_printf ~color:`Pink "        %s" (gen_fortune_cookie ());
