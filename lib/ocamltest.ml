@@ -5,9 +5,9 @@
  *
  * Written by:
  *
- * - Marcelo Camargo <undefined.void@null.net>
+ * - Marcelo Camargo <marcelo.camargo@ngi.com.br>
  * - Paulo Torrens <paulotorrens@gnu.org>
- * - Paulo Henrique Cuchi <paulo.cuchi@gmail.com>
+ * - Paulo Henrique Cuchi <paulo.cuchi@ngi.com.br>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -128,11 +128,11 @@ let gen_fortune_cookie () =
   niilist_messages.(index)
 
 let rec tree_size node =
-    match node with
-    | Dir (_, children) ->
-        children
-        |> List.fold_left (fun size node -> size + (tree_size node)) 0
-    | File _ -> 1
+  match node with
+  | Dir (_, children) ->
+    children
+    |> List.fold_left (fun size node -> size + (tree_size node)) 0
+  | File _ -> 1
 
 let print_diff in_channel =
   Core.In_channel.iter_lines in_channel (fun line ->
@@ -157,8 +157,8 @@ let print_test_status level result test_info =
   let skipped_symbol = C.cyan "●" in
   let print = Printf.printf "%s%s %s %s\n" (indent level) in
   match result with
-  | Passed ms -> print passed_symbol passed_symbol @@ format_time ms
-  | Failed ms -> print passed_symbol failed_symbol @@ format_time ms
+  | Passed ms -> print passed_symbol test_info.description @@ format_time ms
+  | Failed ms -> print failed_symbol test_info.description @@ format_time ms
   | Skipped   -> print skipped_symbol
     (C.gray ~brightness:0.5 test_info.description)
     (C.cyan "(skipped)")
@@ -196,7 +196,6 @@ let report_unexppected_error process_status level test_info possible_error =
     C.red_printf "\n\nThe compiler was killed by a signal. %s\n"
       "What has happened?";
     exit 3
-
 
 let run_test name path level total_skipped total_passing =
   let test_info = get_test_info path in
