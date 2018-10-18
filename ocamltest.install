@@ -1,0 +1,16 @@
+lib: [
+  "_build/install/default/lib/ocamltest/META" {"META"}
+  "_build/install/default/lib/ocamltest/opam" {"opam"}
+  "_build/install/default/lib/ocamltest/ocamltest.cmi" {"ocamltest.cmi"}
+  "_build/install/default/lib/ocamltest/ocamltest.cmx" {"ocamltest.cmx"}
+  "_build/install/default/lib/ocamltest/ocamltest.cmt" {"ocamltest.cmt"}
+  "_build/install/default/lib/ocamltest/ocamltest.ml" {"ocamltest.ml"}
+  "_build/install/default/lib/ocamltest/ocamltest.cma" {"ocamltest.cma"}
+  "_build/install/default/lib/ocamltest/ocamltest.cmxa" {"ocamltest.cmxa"}
+  "_build/install/default/lib/ocamltest/ocamltest.a" {"ocamltest.a"}
+  "_build/install/default/lib/ocamltest/ocamltest.cmxs" {"ocamltest.cmxs"}
+  "_build/install/default/lib/ocamltest/ocamltest.dune" {"ocamltest.dune"}
+]
+doc: [
+  "_build/install/default/doc/ocamltest/LICENSE"
+]

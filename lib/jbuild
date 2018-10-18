@@ -1,0 +1,11 @@
+(jbuild_version 1)
+
+(library
+  ((name ocamltest)
+   (public_name ocamltest)
+   (modules
+    (ocamltest))
+   (libraries
+     (core
+      core_extended))
+   (preprocess (pps (ppx_deriving.show)))))
