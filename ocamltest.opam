@@ -1,0 +1,15 @@
+opam-version: "1.2.2"
+name: "ocamltest"
+version: "0.1"
+maintainer: "Paulo Henrique Cuchi <paulo.cuchi@ngi.com.br>"
+license: "MIT"
+tags: [ "test" ]
+build: [
+    [ "jbuilder" "build" "-p" name "-j" jobs ]
+]
+depends: [
+    "jbuilder"            {build}
+    "core"                {>= "0.10.0"}
+    "core_extended"       {>= "0.10.0"}
+]
+available: [ ocaml-version >= "4.04" & ocaml-version < "4.07" ]
